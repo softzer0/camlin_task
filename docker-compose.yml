@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  api:
+    build: 
+      context: .
+      target: development
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - MONGODB_URL=mongodb://mongodb:27017/wallet_app
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=development-secret-key
+    command: >
+      bash -c "chmod +x /app/scripts/prestart.sh && 
+              /app/scripts/prestart.sh &&
+              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  mongodb_data:
+  redis_data:
