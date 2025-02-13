@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 
 import httpx
 from fastapi_cache.decorator import cache
@@ -31,7 +30,7 @@ class ExchangeRateService:
         except (httpx.HTTPError, IndexError, KeyError) as e:
             raise ExchangeRateError() from e
 
-    async def convert_to_pln(self, currency: str, amount: Decimal) -> Optional[Decimal]:
+    async def convert_to_pln(self, currency: str, amount: Decimal) -> Decimal | None:
         if currency == "PLN":
             return amount
 

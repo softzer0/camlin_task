@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi_cache import FastAPICache
@@ -49,7 +49,7 @@ def create_application() -> FastAPI:
     )
 
     @app.exception_handler(WalletException)
-    async def wallet_exception_handler(request, exc: WalletException):
+    async def wallet_exception_handler(request: Request, exc: WalletException) -> JSONResponse:
         return JSONResponse(
             status_code=exc.status_code, content={"code": exc.code, "message": exc.detail}
         )

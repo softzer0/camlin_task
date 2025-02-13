@@ -1,4 +1,4 @@
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pydantic import BaseModel
@@ -11,7 +11,7 @@ class BaseRepository(Generic[ModelType]):
         self.collection = collection
         self.model = model
 
-    async def find_one(self, query: dict) -> Optional[ModelType]:
+    async def find_one(self, query: dict) -> ModelType | None:
         result = await self.collection.find_one(query)
         if result:
             return self.model.model_validate(result)
@@ -32,7 +32,7 @@ class BaseRepository(Generic[ModelType]):
         result = await self.collection.insert_one(doc_dict)
         return await self.find_one({"_id": result.inserted_id})
 
-    async def update(self, query: dict, update_data: dict) -> Optional[ModelType]:
+    async def update(self, query: dict, update_data: dict) -> ModelType | None:
         result = await self.collection.find_one_and_update(
             query, {"$set": update_data}, return_document=True
         )

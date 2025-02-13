@@ -1,111 +1,117 @@
 import asyncio
 import uuid
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from httpx import AsyncClient
-from motor.motor_asyncio import AsyncIOMotorClient
-from redis import asyncio as aioredis
-from fastapi import FastAPI
+from fakeredis.aioredis import FakeRedis
+from fastapi import FastAPI, status
 from fastapi_cache import FastAPICache
-from fastapi_cache.backends.redis import RedisBackend
+from httpx import AsyncClient
+from mongomock_motor import AsyncMongoMockClient
 
-from app.main import create_application
-from app.core.security import get_password_hash
-from app.repositories.wallet import WalletRepository
-from app.services.exchange import ExchangeRateService
-from app.services.wallet import WalletService
-from app.config import Settings, get_settings
+MOCK_CLIENT = AsyncMongoMockClient()
 
+pytest.MonkeyPatch().setattr(
+    "motor.motor_asyncio.AsyncIOMotorClient", lambda *args, **kwargs: MOCK_CLIENT, raising=False
+)
 
-# Override settings for testing
-def get_test_settings() -> Settings:
-    return Settings(
-        MONGODB_URL="mongodb://localhost:27017/test_wallet_app",
-        REDIS_URL="redis://localhost:6379/1",
-        JWT_SECRET_KEY="test-secret-key",
-    )
+MOCK_REDIS = FakeRedis()
 
+pytest.MonkeyPatch().setattr("redis.asyncio", lambda *args, **kwargs: MOCK_REDIS, raising=False)
 
-# Patch settings before importing app
-pytest.MonkeyPatch().setattr("app.config.get_settings", get_test_settings)
+from fastapi_cache.backends.redis import RedisBackend  # noqa: E402
+
+from app.core.security import get_password_hash  # noqa: E402
+from app.main import create_application  # noqa: E402
+from app.repositories.wallet import WalletRepository  # noqa: E402
+from app.services.exchange import ExchangeRateService  # noqa: E402
+from app.services.wallet import WalletService  # noqa: E402
 
 
 @pytest.fixture(scope="session")
 def event_loop():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     yield loop
     loop.close()
 
 
 @pytest.fixture(scope="session")
-async def app() -> FastAPI:
-    """Create a FastAPI app for testing."""
-    return create_application()
+async def mock_db_client() -> AsyncGenerator[AsyncMongoMockClient, None]:
+    client = MOCK_CLIENT
+    db = client.wallet_app
 
-
-@pytest.fixture(scope="session")
-async def redis(event_loop):
-    settings = get_test_settings()
-    client = aioredis.from_url(settings.REDIS_URL, decode_responses=False)
-    await client.flushdb()
-
-    # Initialize FastAPI cache with Redis backend
-    FastAPICache.init(RedisBackend(client), prefix="fastapi-cache")
-
-    yield client
-
-    # Cleanup
-    await client.flushdb()
-    await client.close()
-
-
-@pytest.fixture(scope="session")
-async def mongodb(event_loop):
-    settings = get_test_settings()
-    client = AsyncIOMotorClient(settings.MONGODB_URL, io_loop=event_loop)
-    db = client.get_database("test_wallet_app")
-
-    # Create indexes
     await db.users.create_index("email", unique=True)
     await db.wallets.create_index("user_id", unique=True)
 
     yield client
 
-    # Cleanup
-    await client.drop_database("test_wallet_app")
-    client.close()
+
+@pytest.fixture
+async def app() -> AsyncGenerator[FastAPI, None]:
+    with patch(
+        "app.services.exchange.httpx.AsyncClient",
+        return_value=get_mock_exchange_rates_httpx_client(),
+    ):
+        app = create_application()
+        FastAPICache.init(RedisBackend(MOCK_REDIS), prefix="fastapi-cache")
+        yield app
 
 
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
-    """Create an HTTP client for testing."""
     async with AsyncClient(
         app=app, base_url="http://testserver", headers={"Content-Type": "application/json"}
     ) as ac:
         yield ac
 
 
-@pytest.fixture
-async def test_user(mongodb: AsyncIOMotorClient) -> dict:
-    """Create a test user."""
+def generate_user_data() -> dict:
     email = f"test_{uuid.uuid4()}@example.com"
-    user_data = {"email": email, "hashed_password": get_password_hash("testpassword")}
-    result = await mongodb.test_wallet_app.users.insert_one(user_data)
+    password = "testpassword"
+    return {"email": email, "password": password, "hashed_password": get_password_hash(password)}
+
+
+@pytest.fixture
+async def test_user(mock_db_client: AsyncMongoMockClient) -> dict:
+    user_data = generate_user_data()
+    result = await mock_db_client.wallet_app.users.insert_one(user_data)
     user_data["id"] = str(result.inserted_id)
     return user_data
 
 
 @pytest.fixture
-async def wallet_repository(mongodb: AsyncIOMotorClient) -> WalletRepository:
-    return WalletRepository(mongodb.test_wallet_app.wallets)
+async def wallet_repository(mock_db_client: AsyncMongoMockClient) -> WalletRepository:
+    return WalletRepository(mock_db_client.wallet_app.wallets)
+
+
+MOCK_EXCHANGE_RATES = [
+    {
+        "rates": [
+            {"code": "EUR", "ask": 4.50},
+            {"code": "USD", "ask": 4.00},
+            {"code": "GBP", "ask": 5.20},
+        ]
+    }
+]
+
+
+def get_mock_exchange_rates_httpx_client() -> AsyncMock:
+    mock_client = AsyncMock()
+    mock_client.get.return_value.json = Mock(return_value=MOCK_EXCHANGE_RATES)
+    mock_client.get.return_value.raise_for_status = Mock()
+
+    return mock_client
 
 
 @pytest.fixture
 async def exchange_service() -> AsyncGenerator[ExchangeRateService, None]:
     service = ExchangeRateService()
+
+    mock_client = get_mock_exchange_rates_httpx_client()
+    service.client = mock_client
+
     yield service
     await service.close()
 
@@ -119,15 +125,16 @@ async def wallet_service(
 
 @pytest.fixture
 async def auth_token(client: AsyncClient, test_user: dict) -> str:
-    """Get authentication token for test user."""
     response = await client.post(
-        "/api/v1/auth/token", json={"email": test_user["email"], "password": "testpassword"}
+        "/api/v1/auth/token", json={"email": test_user["email"], "password": test_user["password"]}
     )
+    assert (
+        response.status_code == status.HTTP_200_OK
+    ), f"Failed to get auth token: {response.json()}"
     return response.json()["access_token"]
 
 
 @pytest.fixture
 async def authorized_client(client: AsyncClient, auth_token: str) -> AsyncClient:
-    """Create an authenticated HTTP client."""
     client.headers["Authorization"] = f"Bearer {auth_token}"
     return client

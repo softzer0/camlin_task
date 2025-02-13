@@ -23,12 +23,16 @@ fastapi-cache2 = {extras = ["redis"], version = "^0.2.1"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
-pytest-asyncio = "^0.23.5"
+pytest-asyncio = "^0.21.1"
+mongomock-motor = "^0.0.35"
+fakeredis = "^2.27.0"
 pytest-cov = "^4.1.0"
 black = "^24.1.1"
 ruff = "^0.1.14"
 mypy = "^1.8.0"
 asgi-lifespan = "^2.1.0"
+types-passlib = "^1.7.1"
+types-python-jose = "^3.3.4"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -43,9 +47,14 @@ line-length = 100
 target-version = "py310"
 select = ["E", "F", "B", "I", "N", "UP", "PL", "RUF"]
 
+[tool.ruff.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends", "fastapi.Security", "fastapi.Query", "fastapi.params.Query"]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true
+explicit_package_bases = true
+disallow_untyped_defs = false
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]

@@ -13,7 +13,7 @@ class Wallet(BaseModel):
     created_at: datetime = Field(default_factory=get_current_time)
     updated_at: datetime = Field(default_factory=get_current_time)
 
-    @field_validator("balances", mode="before")
+    @field_validator("balances")
     @classmethod
     def validate_balances(cls, v: dict[str, Decimal]) -> dict[str, Decimal]:
         return {currency: quantize_decimal(amount) for currency, amount in v.items()}

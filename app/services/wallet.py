@@ -45,8 +45,8 @@ class WalletService:
                 amount=operation.amount,
                 subtract=True,
             )
-        except ValueError:
-            raise InsufficientFundsError(operation.currency)
+        except ValueError as e:
+            raise InsufficientFundsError(operation.currency) from e
 
         return await self.get_wallet(user_id)
 

@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 
@@ -11,7 +10,7 @@ class WalletRepository:
     def __init__(self, collection: AsyncIOMotorCollection):
         self.collection = collection
 
-    async def get_wallet(self, user_id: str) -> Optional[Wallet]:
+    async def get_wallet(self, user_id: str) -> Wallet | None:
         result = await self.collection.find_one({"user_id": user_id})
         return Wallet.model_validate(result) if result else None
 

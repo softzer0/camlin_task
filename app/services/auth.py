@@ -1,5 +1,3 @@
-from typing import Optional
-
 from app.core.exceptions import AuthenticationError
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.domain.user import User
@@ -11,7 +9,7 @@ class AuthService:
     def __init__(self, user_repository: BaseRepository[User]):
         self.user_repository = user_repository
 
-    async def register_user(self, user_data: UserCreate) -> User:
+    async def register_user(self, user_data: UserCreate) -> tuple[User, str]:
         existing_user = await self.user_repository.find_one({"email": user_data.email})
         if existing_user:
             raise AuthenticationError()
@@ -37,5 +35,5 @@ class AuthService:
 
         return user, access_token
 
-    async def get_current_user(self, user_id: str) -> Optional[User]:
+    async def get_current_user(self, user_id: str) -> User | None:
         return await self.user_repository.find_one({"id": user_id})
